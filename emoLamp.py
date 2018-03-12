@@ -1,6 +1,6 @@
 # emoLamp.py
 # Author Wolf Paulus, Intuit IAT
-# Version 2018-03-10
+# Version 2018-03-12
 
 import os
 import sys
@@ -9,26 +9,26 @@ import math
 import copy
 import time
 import threading
+import logging
 import pyaudio
 import wave
 import scipy.io.wavfile
 from pydub import AudioSegment
 from magicblue import MagicBlue, Effect
-import apa102
-import params
 import RPi.GPIO as GPIO
-
-sys.path.append('./OpenVokaturi-3-0/api')
+import apa102
 import Vokaturi
+import params
 
-# Hardware 'pi3b.so' or 'piZero.so'
-print(platform.machine())
+logging.basicConfig(filename='eli.log', level=logging.INFO, format='%(asctime)s %(message)s')
+logging.info(platform.machine())  # Hardware 'pi3b.so' or 'piZero.so'
+
 if platform.machine() == 'armv7l':
-    Vokaturi.load('./OpenVokaturi-3-0/lib/open/linux/pi3b.so')
-    print('pi3b.so loaded')
+    Vokaturi.load('./lib/pi3b.so')
+    logging.info('pi3b.so loaded')
 else:
-    Vokaturi.load('./OpenVokaturi-3-0/lib/open/linux/piZero.so')
-    print('piZero.so loaded')
+    Vokaturi.load('./lib/piZero.so')
+    logging.info('piZero.so loaded')
 
 WAVE_FILENAME = "sound.wav"
 WORK_FILENAME = "work.wav"
@@ -52,12 +52,17 @@ class MagicHue:
         self.bulb.set_effect(Effect.cyan_gradual_change, 20)
 
     def set_color(self, rgb):
-        self.check()
-        self.bulb.set_color(rgb)
+        if self.check():
+            self.bulb.set_color(rgb)
 
     def check(self):
-        if not self.bulb.test_connection:
-            return self.bulb.connect()
+        if not self.bulb.test_connection():
+            logging.warning('bulb not connected')
+            set_neos([2, 0, 0], [0, 0, 0], [0, 0, 0])
+            if not self.bulb.connect():
+                self.bulb = MagicBlue(self.mac, self.ver)
+                self.bulb.connect()
+                return self.bulb.test_connection()
         return True
 
 
@@ -143,8 +148,9 @@ def progress(count, total, status=''):
     bar = '=' * filled_len + ' ' * (bar_len - filled_len)
     sys.stdout.write('[%s] %s %3d\r\n' % (bar, status, count))
 
+
 def show(ep):
-    """Shows simple progress-bar style output in the terminal the provided EmotionProbabilities, loudness, and sampletime"""
+    """Shows simple progress-bar style output in terminal: provided EmotionProbabilities, loudness, and samplet-ime"""
     global decibel
     global sample_time
     progress(ep.neutrality * 100, 100, status='neutral')
@@ -178,11 +184,23 @@ def set_color(col):
             col[2] = int(prev_col[2] / 4)
     prev_col = col
     hue.set_color(col)
-    if 0 < params.NEO_PIXELS:
-        d = params.MAX_NEO_VALUE / 255
-        for i in range(params.NEO_PIXELS):
-            dev.set_pixel(i, int(d * col[0]), int(d * col[1]), int(d * col[2]))
-        dev.show()
+    set_neo(params.NEO_PIXELS, col)
+
+
+def set_neo(k, col):
+    """Set the neopixels 1..k to the provided color"""
+    d = params.MAX_NEO_VALUE / 255
+    for i in range(k):
+        dev.set_pixel(i, int(d * col[0]), int(d * col[1]), int(d * col[2]))
+    dev.show()
+
+
+def set_neos(col0, col1, col2):
+    """Set the neopixels to the provided colors"""
+    dev.set_pixel(0, col0[0], col0[1], col0[2])
+    dev.set_pixel(1, col1[0], col1[1], col1[2])
+    dev.set_pixel(2, col2[0], col2[1], col2[2])
+    dev.show()
 
 
 def get_color(ep):
@@ -238,11 +256,6 @@ sample_time = params.RECORD_SECONDS
 prev_color = [0, 0, 0]
 decibel = 0.0
 dev = apa102.APA102(num_led=3)
-dev.set_pixel(0, 1, 0, 0)
-dev.set_pixel(1, 0, 1, 0)
-dev.set_pixel(2, 0, 0, 1)
-dev.show()
-hue = MagicHue(params.MAC_ADDRESS, params.BULB_VERSION)
 p = pyaudio.PyAudio()
 stream = p.open(format=FORMAT,
                 channels=CHANNELS,
@@ -251,14 +264,23 @@ stream = p.open(format=FORMAT,
                 frames_per_buffer=CHUNK)
 
 if __name__ == "__main__":
+    global hue
     os.system('clear')
+    set_neos([1, 0, 0], [0, 1, 0], [0, 0, 1])
     while True:
+        counter = 1
         try:
+            hue = MagicHue(params.MAC_ADDRESS, params.BULB_VERSION)
             if hue.check():
                 break
             time.sleep(1)
         except Exception as e:
+            col = [0, 0, 0]
+            counter = (counter + 1) % 3  # 0,1,2
+            col[counter] = 1
+            set_neos(col, [0, 1, 0], [0, 0, 1])
             pass
+    set_neos([0, 1, 0], [0, 1, 0], [0, 1, 0])
     try:
         while True:
             thread1 = RecordThread(1, "Recorder", 1)
@@ -269,7 +291,6 @@ if __name__ == "__main__":
             thread2.join()
             if os.path.exists(WAVE_FILENAME):
                 os.rename(WAVE_FILENAME, WORK_FILENAME)
-            state = GPIO.input(BUTTON)
             if not GPIO.input(BUTTON):
                 sample_time += 0.1
     except (RuntimeError, TypeError, NameError):
