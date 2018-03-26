@@ -1,6 +1,6 @@
 # emoLamp.py
 # Author Wolf Paulus, Intuit IAT
-# Version 2018-03-12
+# Version 2018-03-26
 
 import os
 import sys
@@ -53,7 +53,10 @@ class MagicHue:
 
     def set_color(self, rgb):
         if self.check():
-            self.bulb.set_color(rgb)
+            try:
+                self.bulb.set_color(rgb)
+            except (RuntimeError, TypeError, NameError):
+                logging.warning("message")
 
     def check(self):
         if not self.bulb.test_connection():
@@ -136,9 +139,38 @@ def analyze(file):
     voice.extract(quality, ep)
     a = ep if quality.valid and MAX_LOUDNESS + decibel > params.MIN_LOUDNESS else Vokaturi.EmotionProbabilities(0, 0, 0,
                                                                                                                 0, 0)
-    show(a)
-    set_color(get_color(a))
+    k, b = mavg(a)
+    show(k, b)
+    set_color(get_color(b))
     voice.destroy()
+
+
+def mavg(a = Vokaturi.EmotionProbabilities(0, 0, 0, 0, 0)):
+    mavg.dic[mavg.index] = a
+    b = Vokaturi.EmotionProbabilities()
+    i = 0
+    for x in mavg.dic:
+        b.neutrality += x.neutrality
+        b.happiness += x.happiness
+        b.sadness += x.sadness
+        b.anger += x.anger
+        b.fear += x.fear
+        if x.neutrality != 0 or x.happiness != 0 or x.sadness != 0 or x.anger != 0 or b.fear != 0:
+            i += 1
+    if 0 < i:
+        b.neutrality /= i
+        b.happiness /= i
+        b.sadness /= i
+        b.anger /= i
+        b.fear /= i
+    mavg.index = mavg.index+1 if mavg.index+1 < len(mavg.dic) else 0
+    return i, b
+
+
+mavg.dic = []
+for i in range(params.MOVE_AVG):
+    mavg.dic.append(Vokaturi.EmotionProbabilities(0, 0, 0, 0, 0))
+mavg.index = 0
 
 
 def progress(count, total, status=''):
@@ -149,7 +181,7 @@ def progress(count, total, status=''):
     sys.stdout.write('[%s] %s %3d\r\n' % (bar, status, count))
 
 
-def show(ep):
+def show(k, ep):
     """Shows simple progress-bar style output in terminal: provided EmotionProbabilities, loudness, and samplet-ime"""
     global decibel
     global sample_time
@@ -160,7 +192,7 @@ def show(ep):
     progress(ep.fear * 100, 100, status='fear')
     sys.stdout.write('\r\n')
     progress(min(100, 120 + decibel), 100, status='dBFS')
-    progress(int(10 * sample_time), 100, status='SampleTime/10 secs')
+    progress(int(k), 10, status='Moving Avg.')
     sys.stdout.flush()
     sys.stdout.write("\033[F")
     sys.stdout.write("\033[F")
@@ -227,7 +259,6 @@ def get_color(ep):
             col[1] = int(m * col[1])
             col[2] = int(m * col[2])
     else:
-        print(params.DISCRETE, platform.processor())
         red = ep.neutrality * params.neutrality[0]
         red += ep.happiness * params.happiness[0]
         red += ep.sadness * params.sadness[0]
