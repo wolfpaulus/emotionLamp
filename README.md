@@ -6,4 +6,4 @@ The implementation of this idea uses the small and inexpensive Raspberry Pi comp
 Once an emotion has been recognized, the Raspberry Pi communicates over a Bluetooth connection with a smart light bulb, changing its color and intensity, bases on the recognized emotion(s). The overall hardware cost should be below one hundred dollars. Remarkably, when compared to many other voice enabled devices, the Emotion Lamp does not require an internet-connection to work. I.e., voice recordings will never leave the device, won't even be stored on devices, only buffered for a few seconds, during processing.
 
 More detail:
-https://trailblazer.intuitlabs.com/blog/emotion-lamp/
+https://wolfpaulus.com/embedded/emotion-lamp/
